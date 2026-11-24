@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="theme-color" content="#0f1419" />
+  <title>履帶車遙控</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <div id="app">
+    <header class="top-bar">
+      <h1 class="brand">履帶車遙控</h1>
+      <div class="status-group" aria-live="polite">
+        <span id="status-ble" class="pill">BLE: 未連</span>
+        <span id="status-ip" class="pill">IP: —</span>
+        <span id="status-ws" class="pill">WS: 未連</span>
+      </div>
+      <div class="top-actions">
+        <button type="button" id="btn-fullscreen" class="btn ghost" title="全螢幕">全螢幕</button>
+        <button type="button" id="btn-panel" class="btn ghost" aria-expanded="false">連線</button>
+      </div>
+    </header>
+
+    <aside id="connect-panel" class="connect-panel" hidden>
+      <section class="panel-block">
+        <h2>1. 連線藍牙</h2>
+        <div class="row">
+          <button type="button" id="btn-ble-connect" class="btn primary">連線藍牙</button>
+          <button type="button" id="btn-ble-disconnect" class="btn">斷開藍牙</button>
+        </div>
+        <p id="secure-hint" class="hint"></p>
+        <p id="ble-msg" class="hint">首次請填 WiFi；之後按「連線藍牙」會自動帶入並送出／連遙控。</p>
+      </section>
+
+      <section class="panel-block">
+        <h2>2. 送出 WiFi</h2>
+        <p class="hint">第一次請輸入家用 WiFi。成功後會記住；下次連藍牙會自動填入並送出。</p>
+        <label class="field">
+          <span>WiFi SSID</span>
+          <input id="wifi-ssid" type="text" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="網路名稱" />
+        </label>
+        <label class="field">
+          <span>WiFi 密碼</span>
+          <input id="wifi-password" type="password" autocomplete="off" placeholder="密碼" />
+        </label>
+        <div class="row">
+          <button type="button" id="btn-wifi-send" class="btn primary">送出 WiFi 密碼</button>
+        </div>
+        <p id="wifi-msg" class="hint"></p>
+      </section>
+
+      <section class="panel-block">
+        <h2>手動連線（開發後備）</h2>
+        <label class="field">
+          <span>ESP32 IP</span>
+          <input id="manual-ip" type="text" inputmode="decimal" placeholder="192.168.x.x" />
+        </label>
+        <div class="row">
+          <button type="button" id="btn-ws" class="btn primary">連線 WebSocket</button>
+          <button type="button" id="btn-ws-disconnect" class="btn">斷線</button>
+        </div>
+        <p id="ws-msg" class="hint"></p>
+      </section>
+    </aside>
+
+    <main class="stage">
+      <div class="stick-wrap">
+        <p class="stick-label">方向</p>
+        <div id="stick-fine" class="stick" data-mode="fine" aria-label="方向搖桿">
+          <div class="stick-base">
+            <div class="stick-cross"></div>
+            <div class="stick-knob"></div>
+          </div>
+        </div>
+        <p id="readout-fine" class="readout">X 0.00 · Y 0.00</p>
+      </div>
+
+      <div class="center-readout">
+        <p id="readout-packet" class="packet">v=0.00 w=0.00</p>
+      </div>
+
+      <div class="stick-wrap">
+        <p class="stick-label">速度</p>
+        <div id="stick-throttle" class="stick" data-mode="throttle" aria-label="速度搖桿">
+          <div class="stick-base">
+            <div class="stick-track"></div>
+            <div class="stick-knob"></div>
+          </div>
+        </div>
+        <p id="readout-throttle" class="readout">0%</p>
+      </div>
+    </main>
+  </div>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

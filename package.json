@@ -1,0 +1,12 @@
+{
+  "name": "trackbot-web",
+  "private": true,
+  "scripts": {
+    "start": "node dev/serve-https.mjs --regen-cert",
+    "start:keep-cert": "node dev/serve-https.mjs",
+    "start:http": "npx --yes serve . -p 5500"
+  },
+  "dependencies": {
+    "selfsigned": "^2.4.1"
+  }
+}
