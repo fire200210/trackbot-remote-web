@@ -3,8 +3,11 @@
  * Keep UUIDs / ports / JSON keys in sync on both sides.
  *
  * WebSocket:
- * - Phone -> ESP: {"v","w","seq"}  (v cm/s, w=ω rad/s)
+ * - Phone -> ESP (control): {"v","w","seq"}  (v cm/s, w=ω rad/s)
+ * - Phone -> ESP (USB enable): {"usb_enable":0|1,"seq"}
  * - ESP -> Phone: {"a":1,"seq"} ack (echo) or periodic pong (rate-limited ~200ms)
+ * - ESP -> Phone (enable ack): {"a":1,"seq","uart":0|1,"usb_enable":0|1}
+ *   uart=1 = 7-byte UART 0x10 fully written (not STM32 latch confirmation)
  */
 
 export const WS_PORT = 81;
@@ -91,9 +94,22 @@ export function encodeControlFrame({ v, w, seq }) {
 }
 
 /**
+ * USB enable frame (STM32 UART 0x10 via ESP).
+ * @param {{ enable: 0|1|boolean|number, seq: number }} values
+ * @returns {string}
+ */
+export function encodeUsbEnableFrame({ enable, seq }) {
+  return JSON.stringify({
+    usb_enable: enable ? 1 : 0,
+    seq: seq | 0,
+  });
+}
+
+/**
  * Parse ESP ack frame. Returns null on invalid payload (no throw).
+ * Optional uart / usb_enable present only on enable acks.
  * @param {string} text
- * @returns {{ a: number, seq: number } | null}
+ * @returns {{ a: number, seq: number, uart?: number, usb_enable?: number } | null}
  */
 export function parseAckFrame(text) {
   try {
@@ -101,7 +117,15 @@ export function parseAckFrame(text) {
     if (!data || data.a !== 1) {
       return null;
     }
-    return { a: 1, seq: Number(data.seq) || 0 };
+    /** @type {{ a: number, seq: number, uart?: number, usb_enable?: number }} */
+    const out = { a: 1, seq: Number(data.seq) || 0 };
+    if (typeof data.uart === "number") {
+      out.uart = data.uart ? 1 : 0;
+    }
+    if (typeof data.usb_enable === "number") {
+      out.usb_enable = data.usb_enable ? 1 : 0;
+    }
+    return out;
   } catch {
     return null;
   }

@@ -1,4 +1,10 @@
-import { axesToCmdVel, encodeControlFrame, parseAckFrame, wsUrlForIp } from "./protocol.js";
+import {
+  axesToCmdVel,
+  encodeControlFrame,
+  encodeUsbEnableFrame,
+  parseAckFrame,
+  wsUrlForIp,
+} from "./protocol.js";
 
 const CLOSE_RX_TIMEOUT = 4001;
 const CLOSE_BUFFER_STUCK = 4002;
@@ -53,6 +59,17 @@ export class WsControl {
     this._lastSendAt = 0;
     this._lastRxAt = 0;
     this._bufferHighSince = 0;
+    /** When true, force zero axes for 0x01 heartbeat (Orin drives). */
+    this._navEnable = false;
+    /** @type {Map<number, { resolve: (ack: object) => void }>} */
+    this._pendingEnable = new Map();
+    this.enableAckTimeoutMs = 500;
+    this.enableMaxAttempts = 3;
+  }
+
+  /** @returns {boolean} */
+  get navEnable() {
+    return this._navEnable;
   }
 
   /**
@@ -170,8 +187,16 @@ export class WsControl {
     ws.addEventListener("message", (event) => {
       if (this.ws !== ws) return;
       const text = typeof event.data === "string" ? event.data : "";
-      if (parseAckFrame(text)) {
+      const ack = parseAckFrame(text);
+      if (ack) {
         this._lastRxAt = performance.now();
+        if (typeof ack.uart === "number") {
+          const pending = this._pendingEnable.get(ack.seq);
+          if (pending) {
+            this._pendingEnable.delete(ack.seq);
+            pending.resolve(ack);
+          }
+        }
         if (this._degraded) {
           this._degraded = false;
           this._emit(true, `已連線 ${wsUrlForIp(this._lastIp)}`);
@@ -187,6 +212,7 @@ export class WsControl {
       this._stopLoop();
       if (this.ws === ws) {
         this.ws = null;
+        this.clearNavEnableLocal();
         this._emit(false, "已斷線");
         this._scheduleReconnect();
       }
@@ -212,6 +238,7 @@ export class WsControl {
     this._connectGen++;
     this._cancelReconnect();
     this._reconnectAttempt = 0;
+    this.clearNavEnableLocal();
     await this._closeSocketOnly("已斷線");
     this._cooldownUntil = performance.now() + this.disconnectCooldownMs;
   }
@@ -258,6 +285,65 @@ export class WsControl {
 
   get connected() {
     return this.ws?.readyState === WebSocket.OPEN;
+  }
+
+  /**
+   * Grant/revoke Orin USB drive via ESP UART 0x10.
+   * Retries up to enableMaxAttempts; returns true only if uart=1 ack received.
+   * On success updates local navEnable (forces zero axes while ON).
+   * @param {boolean} enable
+   * @returns {Promise<boolean>}
+   */
+  async setNavEnable(enable) {
+    const want = !!enable;
+    if (!this.connected || !this.ws) {
+      return false;
+    }
+
+    for (let attempt = 0; attempt < this.enableMaxAttempts; ++attempt) {
+      const seq = (this.seq = (this.seq + 1) >>> 0);
+      const frame = encodeUsbEnableFrame({ enable: want ? 1 : 0, seq });
+
+      /** @type {Promise<{ uart?: number }>} */
+      const ackPromise = new Promise((resolve) => {
+        const timer = window.setTimeout(() => {
+          this._pendingEnable.delete(seq);
+          resolve({ uart: 0 });
+        }, this.enableAckTimeoutMs);
+        this._pendingEnable.set(seq, {
+          resolve: (ack) => {
+            clearTimeout(timer);
+            resolve(ack);
+          },
+        });
+      });
+
+      try {
+        this.ws.send(frame);
+        this._lastSendAt = performance.now();
+      } catch {
+        this._pendingEnable.delete(seq);
+        this._declareDead("傳送失敗", CLOSE_SEND_FAIL, "send fail");
+        return false;
+      }
+
+      const ack = await ackPromise;
+      if (ack.uart === 1) {
+        this._navEnable = want;
+        this._sendFrame(true);
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /** Reset local nav flag (WS down / unlink); STM32 clears via UART timeout. */
+  clearNavEnableLocal() {
+    this._navEnable = false;
+    for (const [, pending] of this._pendingEnable) {
+      pending.resolve({ uart: 0 });
+    }
+    this._pendingEnable.clear();
   }
 
   _cancelReconnect() {
@@ -385,6 +471,7 @@ export class WsControl {
     this._stopLoop();
     const sock = this.ws;
     this.ws = null;
+    this.clearNavEnableLocal();
     this._degraded = false;
     const willRetry =
       this.autoReconnect && !this._userClosed && !!this._lastIp && this._reconnectAttempt < this.reconnectMax;
@@ -414,7 +501,8 @@ export class WsControl {
     if (!this._checkAlive()) return;
     if (!this.connected || !this.ws) return;
 
-    const axes = this._getAxes();
+    const raw = this._getAxes();
+    const axes = this._navEnable ? { t: 0, fx: 0, fy: 0 } : raw;
     const cmd = axesToCmdVel(axes);
     const now = performance.now();
     const dueHeartbeat = now - this._lastSendAt >= this.heartbeatMs;

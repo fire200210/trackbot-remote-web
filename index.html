@@ -14,11 +14,6 @@
   <div id="app">
     <header class="top-bar">
       <h1 class="brand">履帶車遙控</h1>
-      <div class="status-group" aria-live="polite">
-        <span id="status-ble" class="pill">BLE: 未連</span>
-        <span id="status-ip" class="pill">IP: —</span>
-        <span id="status-ws" class="pill">WS: 未連</span>
-      </div>
       <div class="top-actions">
         <button type="button" id="btn-fullscreen" class="btn ghost" title="全螢幕">全螢幕</button>
         <button type="button" id="btn-panel" class="btn ghost" aria-expanded="false">連線</button>
@@ -80,6 +75,17 @@
       </div>
 
       <div class="center-readout">
+        <div class="link-status" aria-live="polite">
+          <span id="status-ip" class="link-ip" title="IP">—</span>
+          <div class="link-dots">
+            <span id="status-ble" class="link-dot" title="BLE: 未連" aria-label="BLE: 未連">BLE</span>
+            <span id="status-ws" class="link-dot" title="WS: 未連" aria-label="WS: 未連">WS</span>
+          </div>
+        </div>
+        <button type="button" id="btn-nav" class="btn nav-toggle" aria-pressed="false" disabled>
+          導航：關
+        </button>
+        <p id="status-nav" class="nav-status">手動遙控</p>
         <p id="readout-packet" class="packet">v=0.00 w=0.00</p>
       </div>
 

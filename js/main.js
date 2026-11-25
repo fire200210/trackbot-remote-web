@@ -26,6 +26,8 @@ const els = {
   readoutThrottle: document.getElementById("readout-throttle"),
   readoutFine: document.getElementById("readout-fine"),
   readoutPacket: document.getElementById("readout-packet"),
+  btnNav: document.getElementById("btn-nav"),
+  statusNav: document.getElementById("status-nav"),
 };
 
 const state = {
@@ -36,6 +38,7 @@ const state = {
   gotIpAfterBle: false,
   /** True while tab is hidden; keep WS up but force zero axes (Android notifies can flip visibility). */
   pageHidden: false,
+  navPending: false,
 };
 
 const ble = new BleProvisioner();
@@ -90,6 +93,12 @@ ws.configure({
     els.wsMsg.textContent = connected ? `${message}（單控端）` : message;
     /* Lock while linked, reconnecting, or handshake-in-flight (avoids double connect). */
     setLinkedUi(connected || !!reconnecting || !!connecting);
+    if (!connected) {
+      state.navPending = false;
+      syncNavUi(false);
+    } else {
+      syncNavUi(ws.navEnable);
+    }
   },
 });
 
@@ -312,25 +321,77 @@ document.addEventListener("visibilitychange", () => {
 });
 
 function updateReadouts() {
-  const cmd = axesToCmdVel({ t: state.t, fx: state.fx, fy: state.fy });
+  const axes = ws.navEnable
+    ? { t: 0, fx: 0, fy: 0 }
+    : { t: state.t, fx: state.fx, fy: state.fy };
+  const cmd = axesToCmdVel(axes);
   els.readoutThrottle.textContent = `${Math.round(state.t * 100)}%`;
   els.readoutFine.textContent = `X ${fmt(state.fx)} · Y ${fmt(state.fy)}`;
   els.readoutPacket.textContent = `v=${fmt(cmd.v)} w=${fmt(cmd.w)}`;
 }
+
+/**
+ * @param {boolean} enabled
+ * @param {"idle"|"pending"|"fail"} [mode]
+ */
+function syncNavUi(enabled, mode = "idle") {
+  if (!els.btnNav || !els.statusNav) return;
+  const pending = mode === "pending" || state.navPending;
+  els.btnNav.disabled = !ws.connected || pending;
+  els.btnNav.setAttribute("aria-pressed", enabled ? "true" : "false");
+  els.btnNav.textContent = enabled ? "導航：開" : "導航：關";
+  els.statusNav.classList.remove("ok", "warn", "bad");
+  if (pending) {
+    els.statusNav.textContent = "切換中…";
+    els.statusNav.classList.add("warn");
+  } else if (mode === "fail") {
+    els.statusNav.textContent = "切換失敗，請重試";
+    els.statusNav.classList.add("bad");
+  } else if (enabled) {
+    els.statusNav.textContent = "Orin 導航（搖桿暫停）";
+    els.statusNav.classList.add("ok");
+  } else {
+    els.statusNav.textContent = "手動遙控";
+  }
+  updateReadouts();
+}
+
+els.btnNav?.addEventListener("click", async () => {
+  if (!ws.connected || state.navPending) return;
+  const next = !ws.navEnable;
+  state.navPending = true;
+  syncNavUi(ws.navEnable, "pending");
+  const ok = await ws.setNavEnable(next);
+  state.navPending = false;
+  if (ok) {
+    syncNavUi(ws.navEnable);
+  } else {
+    syncNavUi(ws.navEnable, "fail");
+  }
+});
 
 function fmt(n) {
   return (Math.round(n * 100) / 100).toFixed(2);
 }
 
 /**
+ * Link-status dots (BLE/WS) keep short labels; detail goes to title.
+ * IP element shows address text (strips optional "IP:" prefix).
  * @param {HTMLElement} el
- * @param {string} text
+ * @param {string} detail
  * @param {"" | "ok" | "warn" | "bad"} kind
  */
-function setPill(el, text, kind) {
-  el.textContent = text;
+function setPill(el, detail, kind) {
   el.classList.remove("ok", "warn", "bad");
   if (kind) el.classList.add(kind);
+  if (el === els.statusIp) {
+    const raw = String(detail || "").replace(/^IP:\s*/i, "").trim();
+    el.textContent = raw && raw !== "—" ? raw : "—";
+    el.title = raw && raw !== "—" ? `IP: ${raw}` : "IP: —";
+  } else {
+    el.title = detail;
+    el.setAttribute("aria-label", detail);
+  }
 }
 
 function prefillsWifiFromStorage() {
@@ -357,7 +418,7 @@ if (navigator.wakeLock) {
   requestLock();
 }
 
-updateReadouts();
+syncNavUi(false);
 
 {
   const secure = window.isSecureContext;
